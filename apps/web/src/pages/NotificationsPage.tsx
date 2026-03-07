@@ -71,7 +71,7 @@ function NotificationRow({ notification }: { notification: Notification }) {
             </div>
 
             {/* Actions */}
-            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 sm:transition-opacity max-sm:opacity-100">
                 {!notification.isRead && (
                     <button
                         onClick={() => markAsRead([notification.id])}
@@ -88,8 +88,7 @@ function NotificationRow({ notification }: { notification: Notification }) {
                 >
                     <X className="w-4 h-4" />
                 </button>
-            </div>
-        </motion.div>
+            </div>        </motion.div>
     );
 }
 

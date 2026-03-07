@@ -15,7 +15,7 @@ import { Settings, Users, Calendar, MessageSquare, Hash } from 'lucide-react';
 export function TribeDetailPage() {
     const { slug } = useParams<{ slug: string }>();
     const { currentTribe, members, loading: tribeLoading, fetchTribeBySlug, joinTribe, leaveTribe } = useTribeStore();
-    const { posts, loading: postsLoading, fetchPosts, createPost, toggleLike, deletePost } = usePostStore();
+    const { posts, loading: postsLoading, fetchPosts, createPost, toggleReaction, deletePost } = usePostStore();
     const { topics, loading: topicsLoading, fetchTopics, createTopic, deleteTopic } = useTopicStore();
     const { user } = useAuthStore();
     const [activeTab, setActiveTab] = useState<'posts' | 'discussions'>('posts');
@@ -183,7 +183,7 @@ export function TribeDetailPage() {
                                                 <PostCard
                                                     key={post.id}
                                                     post={post}
-                                                    onLike={(id) => toggleLike(id, user!.id)}
+                                                    onReact={(id, type) => toggleReaction(id, user!.id, type)}
                                                     onDelete={deletePost}
                                                 />
                                             ))}

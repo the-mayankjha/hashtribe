@@ -154,7 +154,7 @@ export const useNotificationStore = create<NotificationState>((set) => ({
 }));
 
 // Simulate a live notification arriving after 8 seconds (demo only)
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     setTimeout(() => {
         useNotificationStore.getState().addNotification({
             id: `n-live-${Date.now()}`,

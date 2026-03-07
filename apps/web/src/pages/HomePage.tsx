@@ -6,7 +6,7 @@ import { PostCard } from "@/components/Feed/PostCard";
 import { Zap, Activity } from "lucide-react";
 
 export function HomePage() {
-    const { posts, loading, error, fetchFeed, toggleLike, deletePost } =
+    const { posts, loading, error, fetchFeed, toggleReaction, deletePost } =
         usePostStore();
 
 
@@ -48,7 +48,7 @@ export function HomePage() {
                             <PostCard
                                 key={post.id}
                                 post={post}
-                                onLike={(id) => toggleLike(id, user?.id || '')}
+                                onReact={(id, type) => toggleReaction(id, user?.id || '', type)}
                                 onDelete={deletePost}
                                 showTribe={true}
                             />

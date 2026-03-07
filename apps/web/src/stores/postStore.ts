@@ -2,8 +2,10 @@ import { create } from 'zustand';
 import { supabase as supabaseClient } from '@/lib/supabase';
 const supabase = supabaseClient as any;
 
+export type ReactionType = 'like' | 'useful' | 'trending' | 'support';
+
 export interface Post {
-    id: string;
+    id: string | number;
     tribe_id: string;
     user_id: string;
     content: string | null;
@@ -22,133 +24,164 @@ export interface Post {
         visibility: 'public' | 'private';
     };
     liked_by_user?: boolean;
+    user_reaction?: ReactionType | null;
+    reactions_summary?: Record<string, number>;
 }
 
 interface PostStore {
     posts: Post[];
     loading: boolean;
-    error: string | null;  
+    error: string | null;
     fetchPosts: (tribeId: string, userId?: string) => Promise<void>;
     fetchFeed: (userId?: string) => Promise<void>;
     createPost: (tribeId: string, userId: string, content: string, imageUrls?: string[]) => Promise<void>;
-    deletePost: (postId: string) => Promise<void>;
-    toggleLike: (postId: string, userId: string) => Promise<void>;
+    deletePost: (postId: string | number) => Promise<void>;
+    toggleReaction: (postId: string | number, userId: string, reaction: ReactionType) => Promise<void>;
+    toggleLike: (postId: string | number, userId: string) => Promise<void>;
 }
 
 
 export const usePostStore = create<PostStore>((set, get) => ({
     posts: [],
     loading: false,
-      error: null,
+    error: null,
 
     fetchPosts: async (tribeId, userId) => {
-    set({ loading: true, error: null });
-    try {
-        const { data: postsData, error } = await supabase
-            .from('posts')
-            .select(`
-                *,
-                user:users!posts_user_id_fkey(username, display_name, avatar_url),
-                tribe:tribes(name, slug, visibility)
-            `)
-            .eq('tribe_id', tribeId)
-            .order('created_at', { ascending: false });
+        set({ loading: true, error: null });
+        try {
+            const { data: rawPosts, error: postError } = await supabase
+                .from('posts')
+                .select('*')
+                .eq('tribe_id', tribeId)
+                .order('created_at', { ascending: false });
 
-        if (error) throw error;
+            if (postError) throw postError;
+            if (!rawPosts || rawPosts.length === 0) {
+                set({ posts: [], loading: false });
+                return;
+            }
 
-        let posts: Post[] = postsData.map((p: any) => ({
-            ...p,
-            user: p.user,
-            tribe: p.tribe,
-            liked_by_user: false,
-        }));
+            const userIds = [...new Set(rawPosts.map((p: any) => p.user_id))];
+            const { data: profiles } = await supabase
+                .from('profiles')
+                .select('id, username, display_name, avatar_url')
+                .in('id', userIds);
 
-        if (userId && posts.length > 0) {
-            const postIds = posts.map(p => p.id);
-            const { data: likes } = await supabase
-                .from('post_likes')
-                .select('post_id')
-                .eq('user_id', userId)
-                .in('post_id', postIds);
+            const { data: tribeData } = await supabase
+                .from('tribes')
+                .select('id, name, slug, visibility')
+                .eq('id', tribeId)
+                .single();
 
-            const likedPostIds = new Set(likes?.map((l: any) => l.post_id));
-            posts = posts.map(p => ({
+            const profileMap = new Map(profiles?.map((p: any) => [p.id, p]));
+
+            let posts: Post[] = rawPosts.map((p: any) => ({
                 ...p,
-                liked_by_user: likedPostIds.has(p.id)
+                user: profileMap.get(p.user_id) || { username: 'unknown', display_name: 'Unknown User', avatar_url: '' },
+                tribe: tribeData,
+                liked_by_user: false,
+                user_reaction: null,
+                reactions_summary: p.reactions_summary || {}
             }));
+
+            if (userId) {
+                const postIds = posts.map(p => p.id);
+                const { data: reactions } = await supabase
+                    .from('post_reactions')
+                    .select('post_id, type')
+                    .eq('user_id', userId)
+                    .in('post_id', postIds);
+
+                const reactionMap = new Map(reactions?.map((r: any) => [r.post_id, r.type]));
+                posts = posts.map(p => {
+                    const type = reactionMap.get(p.id) as ReactionType;
+                    return {
+                        ...p,
+                        user_reaction: type || null,
+                        liked_by_user: type === 'like'
+                    };
+                });
+            }
+
+            set({ posts, loading: false });
+        } catch (err: any) {
+            console.error('Error fetching posts:', err);
+            set({ loading: false, error: err.message || 'Failed to load posts' });
         }
-
-        set({ posts, loading: false });
-    } catch (err: any) {
-        console.error('Error fetching posts:', err);
-        set({ loading: false, error: err.message || 'Failed to load posts' });
-    }
-},
-
+    },
 
     fetchFeed: async (userId) => {
-    set({ loading: true, error: null });
-    try {
-        const { data: postsData, error } = await supabase
-            .from('posts')
-            .select(`
-                *,
-                user:users!posts_user_id_fkey(username, display_name, avatar_url),
-                tribe:tribes(name, slug, visibility)
-            `)
-            .order('created_at', { ascending: false })
-            .limit(50);
+        set({ loading: true, error: null });
+        try {
+            const { data: rawPosts, error: postError } = await supabase
+                .from('posts')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(50);
 
-        if (error) throw error;
+            if (postError) throw postError;
+            if (!rawPosts || rawPosts.length === 0) {
+                set({ posts: [], loading: false });
+                return;
+            }
 
-        let posts: Post[] = postsData.map((p: any) => ({
-            ...p,
-            user: p.user,
-            tribe: p.tribe,
-            liked_by_user: false,
-        }));
+            const userIds = [...new Set(rawPosts.map((p: any) => p.user_id))];
+            const { data: profiles } = await supabase
+                .from('profiles')
+                .select('id, username, display_name, avatar_url')
+                .in('id', userIds);
 
-        if (userId && posts.length > 0) {
-            const postIds = posts.map(p => p.id);
-            const { data: likes } = await supabase
-                .from('post_likes')
-                .select('post_id')
-                .eq('user_id', userId)
-                .in('post_id', postIds);
+            const tribeIds = [...new Set(rawPosts.map((p: any) => p.tribe_id))];
+            const { data: tribes } = await supabase
+                .from('tribes')
+                .select('id, name, slug, visibility')
+                .in('id', tribeIds);
 
-            const likedPostIds = new Set(likes?.map((l: any) => l.post_id));
-            posts = posts.map(p => ({
+            const profileMap = new Map(profiles?.map((p: any) => [p.id, p]));
+            const tribeMap = new Map(tribes?.map((t: any) => [t.id, t]));
+
+            let posts: Post[] = rawPosts.map((p: any) => ({
                 ...p,
-                liked_by_user: likedPostIds.has(p.id)
+                user: profileMap.get(p.user_id) || { username: 'unknown', display_name: 'Unknown User', avatar_url: '' },
+                tribe: tribeMap.get(p.tribe_id),
+                liked_by_user: false,
+                user_reaction: null,
+                reactions_summary: p.reactions_summary || {}
             }));
+
+            if (userId) {
+                const postIds = posts.map(p => p.id);
+                const { data: reactions } = await supabase
+                    .from('post_reactions')
+                    .select('post_id, type')
+                    .eq('user_id', userId)
+                    .in('post_id', postIds);
+
+                const reactionMap = new Map(reactions?.map((r: any) => [r.post_id, r.type]));
+                posts = posts.map(p => {
+                    const type = reactionMap.get(p.id) as ReactionType;
+                    return {
+                        ...p,
+                        user_reaction: type || null,
+                        liked_by_user: type === 'like'
+                    };
+                });
+            }
+
+            set({ posts, loading: false });
+        } catch (err: any) {
+            console.error('Error fetching feed:', err);
+            set({ loading: false, error: err.message || 'Failed to load feed' });
         }
-
-        set({ posts, loading: false });
-    } catch (err: any) {
-        console.error('Error fetching feed:', err);
-        set({ loading: false, error: err.message || 'Failed to load feed' });
-    }
-},
-
+    },
 
     createPost: async (tribeId, userId, content, imageUrls = []) => {
         try {
             const { error } = await supabase
                 .from('posts')
-                .insert({
-                    tribe_id: tribeId,
-                    user_id: userId,
-                    content,
-                    image_urls: imageUrls
-                })
-                .select()
-                .single();
-
+                .insert({ tribe_id: tribeId, user_id: userId, content, image_urls: imageUrls })
+                .select().single();
             if (error) throw error;
-
-            // Optimistic update? Or just refetch. Refetch is safer for relations.
-            // But to be fast, we can insert manually if we have user details.
-            // For now, re-fetch to get 'user' join easily.
             get().fetchPosts(tribeId, userId);
         } catch (error) {
             console.error('Error creating post:', error);
@@ -166,58 +199,56 @@ export const usePostStore = create<PostStore>((set, get) => ({
         }
     },
 
-    toggleLike: async (postId, userId) => {
-        const posts = get().posts;
-        const postIndex = posts.findIndex(p => p.id === postId);
-        if (postIndex === -1) return;
+    toggleReaction: async (postId, userId, reaction) => {
+        const originalPosts = get().posts;
 
-        const post = posts[postIndex];
-        const isLiked = post.liked_by_user;
+        // Optimistic UI update
+        set(state => {
+            const posts = [...state.posts];
+            const idx = posts.findIndex(p => p.id === postId);
+            if (idx === -1) return state;
 
-        // Optimistic UI Update
-        const updatedPosts = [...posts];
-        updatedPosts[postIndex] = {
-            ...post,
-            liked_by_user: !isLiked,
-            likes_count: isLiked ? post.likes_count - 1 : post.likes_count + 1
-        };
-        set({ posts: updatedPosts });
+            const post = posts[idx];
+            const prevReaction = post.user_reaction;
+            const newSummary = { ...(post.reactions_summary || {}) };
+
+            if (prevReaction) {
+                newSummary[prevReaction] = Math.max(0, (newSummary[prevReaction] || 0) - 1);
+            }
+
+            let nextReaction: ReactionType | null = reaction;
+            if (prevReaction === reaction) {
+                nextReaction = null;
+            } else {
+                newSummary[reaction] = (newSummary[reaction] || 0) + 1;
+            }
+
+            posts[idx] = {
+                ...post,
+                user_reaction: nextReaction,
+                liked_by_user: nextReaction === 'like',
+                reactions_summary: newSummary,
+                likes_count: newSummary['like'] || 0
+            };
+            return { posts };
+        });
 
         try {
-            if (isLiked) {
-                // Unlike
-                await supabase
-                    .from('post_likes')
-                    .delete()
-                    .eq('post_id', postId)
-                    .eq('user_id', userId);
+            // FIX: Using correct parameter name 'reaction_type_name' to match RPC exactly
+            const { error } = await supabase.rpc('toggle_post_reaction', {
+                target_post_id: postId,
+                target_user_id: userId,
+                reaction_type_name: reaction
+            });
 
-                // Decrement counter (optional if we trigger it, but Supabase doesn't auto-decrement count column unless trigger logic exists)
-                // My migration didn't add count trigger logic. I should update counts manually or rely on count query.
-                // Migration had "likes_count" column but no trigger logic to update it!
-                // I should add a fix or do manual increment.
-                await supabase.rpc('decrement_likes', { row_id: postId }); // Need RPC?
-                // Actually, standard approach: simple update.
-                await supabase
-                    .from('posts')
-                    .update({ likes_count: post.likes_count - 1 }) // This is race-condition prone but ok for prototype
-                    .eq('id', postId);
-
-            } else {
-                // Like
-                await supabase
-                    .from('post_likes')
-                    .insert({ post_id: postId, user_id: userId });
-
-                await supabase
-                    .from('posts')
-                    .update({ likes_count: post.likes_count + 1 })
-                    .eq('id', postId);
-            }
-        } catch (error) {
-            console.error('Error toggling like:', error);
-            // Revert on error
-            set({ posts });
+            if (error) throw error;
+        } catch (error: any) {
+            console.error('Error toggling reaction:', error);
+            set({ posts: originalPosts }); // Revert on failure
         }
+    },
+
+    toggleLike: async (postId, userId) => {
+        return get().toggleReaction(postId, userId, 'like');
     }
 }));

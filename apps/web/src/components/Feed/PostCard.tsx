@@ -1,18 +1,19 @@
 import { Link } from 'react-router-dom';
 import { formatRelativeTime } from '@hashtribe/shared/utils';
-import { Heart, MessageSquare, Share2, Trash2 } from 'lucide-react';
+import { MessageSquare, Share2, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
-import { Post } from '@/stores/postStore';
+import { Post, ReactionType } from '@/stores/postStore';
 import { useAuthStore } from '@/stores/authStore';
+import { ReactionPicker } from './ReactionPicker';
 
 interface PostCardProps {
     post: Post;
-    onLike: (id: string) => void;
+    onReact: (id: string, type: ReactionType) => void;
     onDelete: (id: string) => void;
     showTribe?: boolean;
 }
 
-export function PostCard({ post, onLike, onDelete, showTribe = false }: PostCardProps) {
+export function PostCard({ post, onReact, onDelete, showTribe = false }: PostCardProps) {
     const { user } = useAuthStore();
     const isOwner = user?.id === post.user_id;
 
@@ -62,7 +63,7 @@ export function PostCard({ post, onLike, onDelete, showTribe = false }: PostCard
                 {/* Body */}
                 <p className="mt-1 text-charcoal-800 dark:text-grey-200 whitespace-pre-wrap break-words text-[15px] leading-normal">
                     {post.content}
-                </p>2 text-grey-200 whitespace-pre-wrap break-words text-base leading-relaxed
+                </p>
 
                 {/* Attachments */}
                 {post.image_urls && post.image_urls.length > 0 && (
@@ -85,21 +86,16 @@ export function PostCard({ post, onLike, onDelete, showTribe = false }: PostCard
                 )}
 
                 {/* Actions */}
-                <div className="flex gap-4 mt-4 max-w-md">
+                <div className="flex gap-4 mt-4 max-w-md items-center">
+                    <ReactionPicker
+                        userReaction={post.user_reaction || (post.liked_by_user ? 'like' : null)}
+                        reactionsSummary={post.reactions_summary || { like: post.likes_count || 0 }}
+                        onSelect={(type) => onReact(post.id, type)}
+                    />
+
                     <button className="flex items-center gap-1.5 px-3 py-2 rounded-full text-grey-500 hover:text-blue-400 hover:bg-blue-400/10 transition-all duration-200">
                         <MessageSquare className="w-4 h-4" />
                         <span className="text-xs font-medium">{post.replies_count || ''}</span>
-                    </button>
-
-                    <button
-                        onClick={() => onLike(post.id)}
-                        className={clsx(
-                            "flex items-center gap-1.5 px-3 py-2 rounded-full transition-all duration-200",
-                            post.liked_by_user ? "text-red-500 bg-red-500/20" : "text-grey-500 hover:text-red-500 hover:bg-red-500/10"
-                        )}
-                    >
-                        <Heart className={clsx("w-4 h-4", post.liked_by_user && "fill-current")} />
-                        <span className="text-xs font-medium">{post.likes_count || ''}</span>
                     </button>
 
                     <button className="flex items-center gap-1.5 px-3 py-2 rounded-full text-grey-500 hover:text-green-400 hover:bg-green-400/10 transition-all duration-200">
